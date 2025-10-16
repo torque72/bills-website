@@ -34,12 +34,6 @@ function validateBillPayload(payload) {
   if (payload.notes && typeof payload.notes !== "string") {
     errors.push("'notes' must be a string if provided");
   }
-  if (
-    Object.prototype.hasOwnProperty.call(payload, "isRecurring") &&
-    typeof payload.isRecurring !== "boolean"
-  ) {
-    errors.push("'isRecurring' must be a boolean if provided");
-  }
   return errors;
 }
 
@@ -72,7 +66,6 @@ app.post("/api/bills", async (req, res) => {
     dueDay: Number(payload.dueDay),
     amount: Number(payload.amount),
     notes: payload.notes?.trim() || "",
-    isRecurring: payload.isRecurring ?? true,
   };
 
   await store.upsertBill(bill);
@@ -98,7 +91,6 @@ app.put("/api/bills/:id", async (req, res) => {
     dueDay: Number(payload.dueDay),
     amount: Number(payload.amount),
     notes: payload.notes?.trim() || "",
-    isRecurring: payload.isRecurring ?? true,
   };
 
   await store.upsertBill(updated);

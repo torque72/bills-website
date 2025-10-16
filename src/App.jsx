@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -32,17 +32,9 @@ function startOfMonthKey(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function formatDateLabel(date) {
-  return date.toLocaleDateString(undefined, {
-    month: "2-digit",
-    day: "2-digit",
-    year: "numeric",
-  });
-}
-
 export default function BillsAgentDashboard() {
   const monthKey = startOfMonthKey();
-  const [rows, setRows] = useState([]); // {id,name,dueDay,amount,notes,isPaid,isRecurring}
+  const [rows, setRows] = useState([]); // {id,name,dueDay,amount,notes,isPaid}
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -58,17 +50,6 @@ export default function BillsAgentDashboard() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState(null);
 
-  const monthMeta = useMemo(() => {
-    const [yearStr, monthStr] = monthKey.split("-");
-    const year = Number(yearStr);
-    const monthIndex = Number(monthStr) - 1;
-    if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) {
-      const now = new Date();
-      return { year: now.getFullYear(), monthIndex: now.getMonth() };
-    }
-    return { year, monthIndex };
-  }, [monthKey]);
-
   async function refresh() {
     setLoading(true);
     try {
@@ -83,109 +64,39 @@ export default function BillsAgentDashboard() {
     refresh();
   }, []);
 
-  const decorateBill = useCallback(
-    (bill) => {
-      const amount = Number(bill.amount || 0);
-      const lastDayOfMonth = new Date(
-        monthMeta.year,
-        monthMeta.monthIndex + 1,
-        0
-      ).getDate();
-      const desiredDay = Number(bill.dueDay) || 1;
-      const normalizedDay = Math.min(
-        Math.max(1, Math.round(desiredDay)),
-        lastDayOfMonth
-      );
-      const dueDateString =
-        bill.dueDate ||
-        `${monthMeta.year}-${String(monthMeta.monthIndex + 1).padStart(
-          2,
-          "0"
-        )}-${String(normalizedDay).padStart(2, "0")}`;
-      const dueDateValue = new Date(`${dueDateString}T12:00:00`);
-      const dueDateLabel = bill.dueDateLabel || formatDateLabel(dueDateValue);
-
-      return {
-        ...bill,
-        amount,
-        dueDay: normalizedDay,
-        dueDate: dueDateString,
-        dueDateLabel,
-        dueDateValue,
-        isRecurring: bill.isRecurring ?? true,
-        isPaid: Boolean(bill.isPaid),
-      };
-    },
-    [monthMeta]
-  );
-
-  const bills = useMemo(() => rows.map(decorateBill), [rows, decorateBill]);
-
   const totals = useMemo(() => {
-    const totalDue = bills.reduce((s, r) => s + r.amount, 0);
-    const recurringDue = bills
-      .filter((bill) => bill.isRecurring)
-      .reduce((s, bill) => s + bill.amount, 0);
-    const paidAmt = bills
-      .filter((bill) => bill.isPaid)
-      .reduce((s, bill) => s + bill.amount, 0);
-    const remaining = bills
-      .filter((bill) => !bill.isPaid)
-      .reduce((s, bill) => s + bill.amount, 0);
-    const remainingRecurring = bills
-      .filter((bill) => !bill.isPaid && bill.isRecurring)
-      .reduce((s, bill) => s + bill.amount, 0);
-    return {
-      totalDue,
-      recurringDue,
-      paidAmt,
-      remaining,
-      remainingRecurring,
-    };
-  }, [bills]);
+    const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const paidAmt = rows.reduce(
+      (s, r) => s + (r.isPaid ? Number(r.amount || 0) : 0),
+      0
+    );
+    return { total, paidAmt, remaining: total - paidAmt };
+  }, [rows]);
 
   const upcomingThisWeek = useMemo(() => {
     const now = new Date();
-    const start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0,
-      0
-    );
-    const within = new Date(start);
-    within.setDate(start.getDate() + 7);
-    return bills
-      .filter(
-        (r) => !r.isPaid && r.dueDateValue >= start && r.dueDateValue <= within
-      )
-      .sort((a, b) => a.dueDateValue - b.dueDateValue);
-  }, [bills]);
+    const within = new Date(now);
+    within.setDate(now.getDate() + 7);
+    return rows
+      .filter((r) => {
+        const due = new Date(now.getFullYear(), now.getMonth(), r.dueDay);
+        return due >= now && due <= within;
+      })
+      .sort((a, b) => a.dueDay - b.dueDay);
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const sorted = bills.slice().sort((a, b) => a.dueDateValue - b.dueDateValue);
+    const sorted = rows.slice().sort((a, b) => a.dueDay - b.dueDay);
     if (!q) return sorted;
     return sorted.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
-        r.dueDateLabel.toLowerCase().includes(q) ||
+        String(r.dueDay).includes(q) ||
         String(r.amount).includes(q) ||
         (r.notes || "").toLowerCase().includes(q)
     );
-  }, [bills, query]);
-
-  const unpaidBills = useMemo(
-    () => filtered.filter((bill) => !bill.isPaid),
-    [filtered]
-  );
-
-  const paidBills = useMemo(
-    () => filtered.filter((bill) => bill.isPaid),
-    [filtered]
-  );
+  }, [rows, query]);
 
   async function togglePaid(id, next) {
     await API(`/api/bills/${encodeURIComponent(id)}/paid`, {
@@ -196,23 +107,12 @@ export default function BillsAgentDashboard() {
   }
 
   function openNew() {
-    setEditing({
-      id: "",
-      name: "",
-      dueDay: 1,
-      amount: 0,
-      notes: "",
-      isRecurring: true,
-    });
+    setEditing({ id: "", name: "", dueDay: 1, amount: 0, notes: "" });
     setShowForm(true);
   }
 
   function openEdit(row) {
-    setEditing({
-      ...row,
-      dueDay: row.dueDay ?? row.dueDateValue?.getDate() ?? 1,
-      isRecurring: row.isRecurring ?? true,
-    });
+    setEditing({ ...row });
     setShowForm(true);
   }
 
@@ -225,7 +125,6 @@ export default function BillsAgentDashboard() {
       dueDay: Number(form.get("dueDay") || 1),
       amount: Number(form.get("amount") || 0),
       notes: (form.get("notes") || "").toString(),
-      isRecurring: form.get("isRecurring") === "on",
     };
 
     if (payload.id) {
@@ -320,13 +219,9 @@ export default function BillsAgentDashboard() {
         </header>
 
         <section className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-          <KPI label="Total This Month" value={currency(totals.totalDue)} />
-          <KPI
-            label="Recurring Obligations"
-            value={currency(totals.recurringDue)}
-          />
+          <KPI label="Total Due" value={currency(totals.total)} />
           <KPI label="Paid So Far" value={currency(totals.paidAmt)} />
-          <KPI label="Still Due" value={currency(totals.remaining)} highlight />
+          <KPI label="Remaining" value={currency(totals.remaining)} highlight />
           <div className="rounded-2xl border border-slate-800 p-4 bg-slate-900/40">
             <h2 className="text-slate-400 text-sm mb-2">Ask the assistant</h2>
             <p className="text-sm text-slate-300">
@@ -358,15 +253,18 @@ export default function BillsAgentDashboard() {
                       <div>
                         <div className="font-medium">{b.name}</div>
                         <div className="text-slate-400 text-sm">
-                          Due {b.dueDateLabel} • {currency(b.amount)} • {" "}
-                          {b.isRecurring ? "Recurring" : "One-time"}
+                          Due on {b.dueDay} • {currency(b.amount)}
                         </div>
                       </div>
                       <button
-                        onClick={() => togglePaid(b.id, true)}
-                        className="px-3 py-1 rounded-xl border bg-slate-800 border-slate-700 hover:border-emerald-500 hover:bg-emerald-600/40"
+                        onClick={() => togglePaid(b.id, !b.isPaid)}
+                        className={`px-3 py-1 rounded-xl border ${
+                          b.isPaid
+                            ? "bg-emerald-600 border-emerald-500"
+                            : "bg-slate-800 border-slate-700"
+                        }`}
                       >
-                        Mark Paid
+                        {b.isPaid ? "Paid" : "Mark Paid"}
                       </button>
                     </li>
                   ))}
@@ -375,21 +273,13 @@ export default function BillsAgentDashboard() {
             </section>
 
             <section className="rounded-2xl overflow-hidden border border-slate-800">
-              <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold">Bills Due This Month</h2>
-                <div className="flex items-center gap-4 text-xs text-slate-400">
-                  <span>{unpaidBills.length} bill(s)</span>
-                  <span>Remaining: {currency(totals.remaining)}</span>
-                </div>
-              </div>
               <table className="min-w-full bg-slate-950">
                 <thead className="bg-slate-900">
                   <tr>
                     <Th>Name</Th>
-                    <Th>Due Date</Th>
+                    <Th>Due Day</Th>
                     <Th>Amount</Th>
                     <Th>Notes</Th>
-                    <Th>Type</Th>
                     <Th>Status</Th>
                     <Th className="text-right pr-4">Actions</Th>
                   </tr>
@@ -397,135 +287,34 @@ export default function BillsAgentDashboard() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <Td colSpan={7}>Loading…</Td>
-                    </tr>
-                  ) : unpaidBills.length === 0 ? (
-                    <tr>
-                      <Td colSpan={7} className="text-slate-400 text-center">
-                        Everything is paid for this month — nice work!
-                      </Td>
+                      <Td colSpan={6}>Loading…</Td>
                     </tr>
                   ) : (
-                    unpaidBills.map((r) => (
+                    filtered.map((r) => (
                       <tr
                         key={r.id}
                         className="border-t border-slate-800 hover:bg-slate-900/60"
                       >
                         <Td>{r.name}</Td>
-                        <Td>{r.dueDateLabel}</Td>
-                        <Td>{currency(r.amount)}</Td>
+                        <Td>{r.dueDay}</Td>
+                        <Td>{currency(Number(r.amount))}</Td>
                         <Td className="max-w-[24ch] truncate" title={r.notes}>
                           {r.notes}
                         </Td>
                         <Td>
-                          <span
-                            className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-medium ${
-                              r.isRecurring
-                                ? "bg-emerald-600/20 text-emerald-300"
-                                : "bg-slate-800 text-slate-300"
+                          <button
+                            onClick={() => togglePaid(r.id, !r.isPaid)}
+                            className={`px-2 py-1 rounded-lg border text-sm ${
+                              r.isPaid
+                                ? "bg-emerald-600 border-emerald-500"
+                                : "bg-slate-800 border-slate-700"
                             }`}
                           >
-                            {r.isRecurring ? "Recurring" : "One-time"}
-                          </span>
-                        </Td>
-                        <Td>
-                          <button
-                            onClick={() => togglePaid(r.id, true)}
-                            className="px-2 py-1 rounded-lg border text-sm bg-slate-800 border-slate-700 hover:border-emerald-500 hover:bg-emerald-600/40"
-                          >
-                            Mark Paid
+                            {r.isPaid ? "Paid" : "Mark Paid"}
                           </button>
                         </Td>
                         <Td className="text-right pr-4">
                           <div className="inline-flex gap-2">
-                            <button
-                              onClick={() => openEdit(r)}
-                              className="px-2 py-1 rounded-lg bg-slate-800"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => deleteRow(r.id)}
-                              className="px-2 py-1 rounded-lg bg-red-700"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </Td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </section>
-
-            <section className="rounded-2xl overflow-hidden border border-slate-800">
-              <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold">Paid This Month</h2>
-                <div className="flex items-center gap-4 text-xs text-slate-400">
-                  <span>{paidBills.length} bill(s)</span>
-                  <span>Paid: {currency(totals.paidAmt)}</span>
-                </div>
-              </div>
-              <table className="min-w-full bg-slate-950">
-                <thead className="bg-slate-900">
-                  <tr>
-                    <Th>Name</Th>
-                    <Th>Due Date</Th>
-                    <Th>Amount</Th>
-                    <Th>Notes</Th>
-                    <Th>Type</Th>
-                    <Th>Status</Th>
-                    <Th className="text-right pr-4">Actions</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <Td colSpan={7}>Loading…</Td>
-                    </tr>
-                  ) : paidBills.length === 0 ? (
-                    <tr>
-                      <Td colSpan={7} className="text-slate-400 text-center">
-                        No payments recorded yet this month.
-                      </Td>
-                    </tr>
-                  ) : (
-                    paidBills.map((r) => (
-                      <tr
-                        key={r.id}
-                        className="border-t border-slate-800 hover:bg-slate-900/60"
-                      >
-                        <Td>{r.name}</Td>
-                        <Td>{r.dueDateLabel}</Td>
-                        <Td>{currency(r.amount)}</Td>
-                        <Td className="max-w-[24ch] truncate" title={r.notes}>
-                          {r.notes}
-                        </Td>
-                        <Td>
-                          <span
-                            className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-medium ${
-                              r.isRecurring
-                                ? "bg-emerald-600/20 text-emerald-300"
-                                : "bg-slate-800 text-slate-300"
-                            }`}
-                          >
-                            {r.isRecurring ? "Recurring" : "One-time"}
-                          </span>
-                        </Td>
-                        <Td>
-                          <span className="inline-flex items-center rounded-lg px-2 py-1 text-xs font-medium bg-emerald-600/20 text-emerald-300">
-                            Paid
-                          </span>
-                        </Td>
-                        <Td className="text-right pr-4">
-                          <div className="inline-flex gap-2">
-                            <button
-                              onClick={() => togglePaid(r.id, false)}
-                              className="px-2 py-1 rounded-lg bg-slate-800"
-                            >
-                              Mark Unpaid
-                            </button>
                             <button
                               onClick={() => openEdit(r)}
                               className="px-2 py-1 rounded-lg bg-slate-800"
@@ -631,9 +420,7 @@ export default function BillsAgentDashboard() {
                 />
               </label>
               <label className="grid gap-1">
-                <span className="text-sm text-slate-400">
-                  Due Day of Month (1–31)
-                </span>
+                <span className="text-sm text-slate-400">Due Day (1–31)</span>
                 <input
                   type="number"
                   min={1}
@@ -663,15 +450,6 @@ export default function BillsAgentDashboard() {
                   className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800"
                 />
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-300">
-                <input
-                  type="checkbox"
-                  name="isRecurring"
-                  defaultChecked={editing?.isRecurring ?? true}
-                  className="h-4 w-4 rounded border border-slate-700 bg-slate-900 text-emerald-600 focus:ring-emerald-600"
-                />
-                Recurring every month
-              </label>
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -693,6 +471,10 @@ export default function BillsAgentDashboard() {
             </form>
           </div>
         )}
+
+        <footer className="text-center text-xs text-slate-500 mt-8">
+          Powered by a local API at <span className="font-mono">http://localhost:4000</span>.
+        </footer>
       </div>
     </div>
   );

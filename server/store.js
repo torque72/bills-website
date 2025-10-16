@@ -3,13 +3,6 @@ import { fileURLToPath } from "url";
 import { JSONFile } from "lowdb/node";
 import { Low } from "lowdb";
 
-const dueDateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "2-digit",
-  day: "2-digit",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const defaultData = {
   bills: [],
@@ -29,55 +22,17 @@ export async function createBillsStore(filename = "data/bills.json") {
     await db.write();
   }
 
-  const withDefaults = (bill) => ({
-    ...bill,
-    isRecurring: bill.isRecurring ?? true,
-  });
-
-  const computeDueMeta = (bill, monthKey) => {
-    if (!monthKey || typeof monthKey !== "string") {
-      return {};
-    }
-
-    const [yearStr, monthStr] = monthKey.split("-");
-    const year = Number(yearStr);
-    const monthIndex = Number(monthStr) - 1;
-    if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) {
-      return {};
-    }
-
-    const lastDayOfMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
-    const desiredDay = Number(bill.dueDay) || 1;
-    const normalizedDay = Math.min(
-      Math.max(1, Math.round(desiredDay)),
-      lastDayOfMonth,
-    );
-    const dueDate = new Date(Date.UTC(year, monthIndex, normalizedDay));
-
-    return {
-      dueDate: `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(
-        normalizedDay,
-      ).padStart(2, "0")}`,
-      dueDateLabel: dueDateFormatter.format(dueDate),
-    };
-  };
-
-  const withDueMeta = (bill, monthKey) => ({
-    ...withDefaults(bill),
-    ...computeDueMeta(bill, monthKey),
-  });
-
   return {
     async listBills() {
       await db.read();
-      return db.data.bills.map(withDefaults);
+      return db.data.bills;
     },
 
     async listBillsWithStatus(monthKey) {
       await db.read();
       const monthStatus = db.data.paidStatus[monthKey] || {};
       return db.data.bills.map((bill) => ({
-        ...withDueMeta(bill, monthKey),
+        ...bill,
         isPaid: Boolean(monthStatus[bill.id]),
       }));
     },
@@ -92,12 +47,11 @@ export async function createBillsStore(filename = "data/bills.json") {
       const existing = db.data.bills.find((bill) => bill.id === input.id);
       if (existing) {
         Object.assign(existing, input);
-        existing.isRecurring = existing.isRecurring ?? true;
       } else {
-        db.data.bills.push(withDefaults(input));
+        db.data.bills.push(input);
       }
       await write();
-      return withDefaults(input);
+      return input;
     },
 
     async deleteBill(id) {
@@ -125,28 +79,16 @@ export async function createBillsStore(filename = "data/bills.json") {
 
     async getMonthlySummary(monthKey) {
       const bills = await this.listBillsWithStatus(monthKey);
-      const sumAmounts = (acc, bill) => acc + Number(bill.amount || 0);
-      const totalDue = bills.reduce(sumAmounts, 0);
-      const recurringDue = bills.filter((bill) => bill.isRecurring).reduce(sumAmounts, 0);
-      const paid = bills.filter((bill) => bill.isPaid).reduce(sumAmounts, 0);
-      const paidRecurring = bills
-        .filter((bill) => bill.isPaid && bill.isRecurring)
-        .reduce(sumAmounts, 0);
-      const remaining = bills.filter((bill) => !bill.isPaid).reduce(sumAmounts, 0);
-      const remainingRecurring = bills
-        .filter((bill) => !bill.isPaid && bill.isRecurring)
-        .reduce(sumAmounts, 0);
+      const total = bills.reduce((sum, bill) => sum + Number(bill.amount || 0), 0);
+      const paid = bills
+        .filter((bill) => bill.isPaid)
+        .reduce((sum, bill) => sum + Number(bill.amount || 0), 0);
       return {
         bills,
         totals: {
-          total: totalDue,
-          totalDue,
-          recurringDue,
-          oneTimeDue: totalDue - recurringDue,
+          total,
           paid,
-          remaining,
-          paidRecurring,
-          remainingRecurring,
+          remaining: total - paid,
         },
       };
     },

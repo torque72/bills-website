@@ -6,7 +6,6 @@ A minimal full-stack bills manager featuring a modern React dashboard, a Node/Ex
 
 - 📊 Dashboard with totals, upcoming bills, search, and CRUD management
 - ✅ Track paid status per bill per month
-- 🔁 Flag bills as recurring or one-time so you know what repeats
 - 🤖 Ask natural-language questions about your bills using OpenAI (optional)
 - 💾 Lightweight JSON storage powered by LowDB
 - ⚡️ Vite + Tailwind CSS frontend
@@ -52,8 +51,8 @@ The frontend production bundle is generated in `dist/`. Serve it with your prefe
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | GET    | `/api/bills?month=YYYY-MM` | List bills with paid status for the given month. |
-| POST   | `/api/bills` | Create a bill. Optional `id` field auto-generates when omitted. `isRecurring` defaults to `true`. |
-| PUT    | `/api/bills/:id` | Update an existing bill, including `isRecurring`. |
+| POST   | `/api/bills` | Create a bill. Optional `id` field auto-generates when omitted. |
+| PUT    | `/api/bills/:id` | Update an existing bill. |
 | DELETE | `/api/bills/:id` | Delete a bill and remove its paid history. |
 | POST   | `/api/bills/:id/paid` | Toggle paid status for a bill in a month. Body: `{ "month": "YYYY-MM", "isPaid": true }`. |
 | POST   | `/api/chat` | Ask the assistant a question about the current month’s bills. Requires OpenAI credentials. |

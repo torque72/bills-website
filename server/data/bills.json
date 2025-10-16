@@ -5,24 +5,21 @@
       "name": "Rent",
       "dueDay": 1,
       "amount": 1800,
-      "notes": "Downtown apartment",
-      "isRecurring": true
+      "notes": "Downtown apartment"
     },
     {
       "id": "utilities",
       "name": "Utilities",
       "dueDay": 10,
       "amount": 220.5,
-      "notes": "Electric, water, trash",
-      "isRecurring": true
+      "notes": "Electric, water, trash"
     },
     {
       "id": "internet",
       "name": "Internet",
       "dueDay": 15,
       "amount": 85,
-      "notes": "Fiber 1Gb",
-      "isRecurring": true
+      "notes": "Fiber 1Gb"
     }
   ],
   "paidStatus": {}
